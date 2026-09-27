@@ -121,24 +121,11 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: "6. Setup Android SDK"
-        uses: android-actions/setup-android@v3
-
-      - name: "6.1 Accept Android SDK Licenses"
+      - name: "5.1 Pre-accept Android SDK Licenses"
         run: |
-          echo "========================================================"
-          echo "AUTO-ACCEPTING ALL ANDROID SDK LICENSES"
-          echo "========================================================"
-          if command -v sdkmanager &> /dev/null; then
-            yes | sdkmanager --licenses || true
-          fi
-          
+          echo "Pre-accepting all Android SDK licenses..."
           for base_dir in "$ANDROID_HOME" "$ANDROID_SDK_ROOT" "/usr/local/lib/android/sdk"; do
             if [ -n "$base_dir" ] && [ -d "$base_dir" ]; then
-              SDK_BIN=$(find "$base_dir" -name sdkmanager -type f 2>/dev/null | head -n 1)
-              if [ -n "$SDK_BIN" ] && [ -x "$SDK_BIN" ]; then
-                yes | "$SDK_BIN" --licenses || true
-              fi
               mkdir -p "$base_dir/licenses"
               printf "8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e\n24333f8a63b68ba51e3cbe33f00640d85997579f\n" > "$base_dir/licenses/android-sdk-license"
               printf "84831b9409646a918e30573bab4c9c91346d8abd\n" > "$base_dir/licenses/android-sdk-preview-license"
@@ -149,7 +136,30 @@ jobs:
               printf "859f317696f67ef43acde8027259b83c25e31db2\n" > "$base_dir/licenses/android-sdk-arm-dbt-license"
             fi
           done
-          echo "All Android SDK licenses have been successfully accepted."
+
+      - name: "6. Setup Android SDK"
+        uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: false
+          packages: ''
+
+      - name: "6.1 Verify All Android SDK Licenses"
+        run: |
+          echo "========================================================"
+          echo "VERIFYING ALL ANDROID SDK LICENSES"
+          echo "========================================================"
+          if command -v sdkmanager &> /dev/null; then
+            yes | sdkmanager --licenses || true
+          fi
+          for base_dir in "$ANDROID_HOME" "$ANDROID_SDK_ROOT" "/usr/local/lib/android/sdk"; do
+            if [ -n "$base_dir" ] && [ -d "$base_dir" ]; then
+              SDK_BIN=$(find "$base_dir" -name sdkmanager -type f 2>/dev/null | head -n 1)
+              if [ -n "$SDK_BIN" ] && [ -x "$SDK_BIN" ]; then
+                yes | "$SDK_BIN" --licenses || true
+              fi
+            fi
+          done
+          echo "All Android SDK licenses verified successfully."
 
       - name: "7. Setup Gradle"
         uses: gradle/actions/setup-gradle@v4

@@ -25,9 +25,31 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Accept Android SDK Licenses
+      - name: Accept All Android SDK Licenses Non-Interactively
+        shell: bash
         run: |
-          yes | sdkmanager --licenses || true
+          set -euo pipefail
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          export ANDROID_HOME="$SDK_DIR"
+          export ANDROID_SDK_ROOT="$SDK_DIR"
+
+          mkdir -p "$SDK_DIR/licenses"
+
+          # 1. Pre-populate official Google Android SDK license hashes so Gradle never blocks
+          printf "\n8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e\n24333f8a63b6825ea9c5514f83c2829b004d1fee\n859f317696f67ef3d7f30a50a5560e7834b43903\n" > "$SDK_DIR/licenses/android-sdk-license"
+          printf "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910\n" > "$SDK_DIR/licenses/android-sdk-preview-license"
+          printf "\n33b6a2b64607f11b759f320ef9dff4ae5c47d97a\n" > "$SDK_DIR/licenses/google-gdk-license"
+          printf "\ne9acab5b5fbb560a72cfaecce8946896ff6aab9d\n" > "$SDK_DIR/licenses/mips-android-sysimage-license"
+
+          # 2. Also run sdkmanager --licenses with yes piped safely (disabling pipefail for SIGPIPE 141)
+          SDKMANAGER_BIN=$(find "$SDK_DIR" -type f -name "sdkmanager" | head -n 1 || which sdkmanager || true)
+          if [ -n "${SDKMANAGER_BIN:-}" ] && [ -x "$SDKMANAGER_BIN" ]; then
+            echo "Accepting licenses via $SDKMANAGER_BIN..."
+            set +o pipefail
+            yes | "$SDKMANAGER_BIN" --sdk_root="$SDK_DIR" --licenses > /dev/null 2>&1 || true
+            set -o pipefail
+          fi
+          echo "All Android SDK licenses accepted successfully."
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -56,6 +78,7 @@ jobs:
             echo "Found ZIP archive: $ZIP_FILE"
             unzip -q -o "$ZIP_FILE" -d "$EXTRACTED_PATH"
 
+            # Handle nested ZIP inside the outer ZIP if present and no settings file at first pass
             INITIAL_SETTINGS=$(find "$EXTRACTED_PATH" -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) ! -path "*/__MACOSX/*" | head -n 1 || true)
             if [ -z "$INITIAL_SETTINGS" ]; then
               NESTED_ZIP=$(find "$EXTRACTED_PATH" -type f -name "*.zip" ! -path "*/__MACOSX/*" | head -n 1 || true)
@@ -70,6 +93,7 @@ jobs:
           fi
 
           echo "=== Step 2: Recursively Searching for settings.gradle or settings.gradle.kts ==="
+          # Find all settings.gradle / settings.gradle.kts files, sorted by shallowest directory depth first
           SETTINGS_FILE=$(find "$EXTRACTED_PATH" -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
             ! -path "*/__MACOSX/*" \
             ! -path "*/.gradle/*" \
@@ -101,15 +125,13 @@ jobs:
           set -euo pipefail
           echo "Running inside PROJECT_ROOT: $(pwd)"
 
-          if [ -n "${ANDROID_HOME:-}" ]; then
-            echo "sdk.dir=$ANDROID_HOME" > local.properties
-          elif [ -n "${ANDROID_SDK_ROOT:-}" ]; then
-            echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
-          fi
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "sdk.dir=$SDK_DIR" > local.properties
 
           echo "Configured local.properties:"
           cat local.properties || true
 
+          # Ensure Gradle Wrapper exists or generate it using setup-gradle
           if [ ! -f "./gradlew" ]; then
             echo "gradlew not found in PROJECT_ROOT. Generating Gradle Wrapper..."
             gradle wrapper --gradle-version 8.6 --distribution-type bin

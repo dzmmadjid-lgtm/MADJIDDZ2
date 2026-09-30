@@ -25,6 +25,10 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | sdkmanager --licenses || true
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
@@ -52,7 +56,6 @@ jobs:
             echo "Found ZIP archive: $ZIP_FILE"
             unzip -q -o "$ZIP_FILE" -d "$EXTRACTED_PATH"
 
-            # Handle nested ZIP inside the outer ZIP if present and no settings file at first pass
             INITIAL_SETTINGS=$(find "$EXTRACTED_PATH" -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) ! -path "*/__MACOSX/*" | head -n 1 || true)
             if [ -z "$INITIAL_SETTINGS" ]; then
               NESTED_ZIP=$(find "$EXTRACTED_PATH" -type f -name "*.zip" ! -path "*/__MACOSX/*" | head -n 1 || true)
@@ -67,7 +70,6 @@ jobs:
           fi
 
           echo "=== Step 2: Recursively Searching for settings.gradle or settings.gradle.kts ==="
-          # Find all settings.gradle / settings.gradle.kts files, sorted by shallowest directory depth first
           SETTINGS_FILE=$(find "$EXTRACTED_PATH" -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
             ! -path "*/__MACOSX/*" \
             ! -path "*/.gradle/*" \
@@ -99,7 +101,6 @@ jobs:
           set -euo pipefail
           echo "Running inside PROJECT_ROOT: $(pwd)"
 
-          # Point local.properties to the GitHub Runner's Android SDK
           if [ -n "${ANDROID_HOME:-}" ]; then
             echo "sdk.dir=$ANDROID_HOME" > local.properties
           elif [ -n "${ANDROID_SDK_ROOT:-}" ]; then
@@ -109,7 +110,6 @@ jobs:
           echo "Configured local.properties:"
           cat local.properties || true
 
-          # Ensure Gradle Wrapper exists or generate it using setup-gradle
           if [ ! -f "./gradlew" ]; then
             echo "gradlew not found in PROJECT_ROOT. Generating Gradle Wrapper..."
             gradle wrapper --gradle-version 8.6 --distribution-type bin

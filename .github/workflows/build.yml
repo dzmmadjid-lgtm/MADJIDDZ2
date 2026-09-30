@@ -22,34 +22,66 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept All Android SDK Licenses Non-Interactively
+      - name: Setup Android SDK, Accept Licenses & Install Required Packages
         shell: bash
         run: |
           set -euo pipefail
+
+          # 1. Resolve Android SDK Root on GitHub Ubuntu Runner
           SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$SDK_DIR" ]; then
+            mkdir -p "$SDK_DIR"
+          fi
+
           export ANDROID_HOME="$SDK_DIR"
           export ANDROID_SDK_ROOT="$SDK_DIR"
+          echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
 
+          # 2. Locate the correct sdkmanager binary (preferring cmdline-tools/latest)
+          SDKMANAGER=""
+          if [ -x "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
+          else
+            SDKMANAGER=$(find "$SDK_DIR/cmdline-tools" -type f -name "sdkmanager" 2>/dev/null | sort -V | tail -n 1 || true)
+          fi
+          if [ -z "$SDKMANAGER" ] && [ -x "$SDK_DIR/tools/bin/sdkmanager" ]; then
+            SDKMANAGER="$SDK_DIR/tools/bin/sdkmanager"
+          fi
+
+          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
+            echo "cmdline-tools sdkmanager not found in $SDK_DIR; bootstrapping commandlinetools..."
+            CMDLINE_ZIP="$RUNNER_TEMP/commandlinetools.zip"
+            curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o "$CMDLINE_ZIP"
+            mkdir -p "$SDK_DIR/cmdline-tools"
+            unzip -q -o "$CMDLINE_ZIP" -d "$SDK_DIR/cmdline-tools"
+            mv "$SDK_DIR/cmdline-tools/cmdline-tools" "$SDK_DIR/cmdline-tools/latest"
+            SDKMANAGER="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
+            chmod +x "$SDKMANAGER"
+          fi
+
+          echo "Using sdkmanager binary: $SDKMANAGER"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+          echo "$SDK_DIR/platform-tools" >> "$GITHUB_PATH"
+
+          # 3. Pre-populate official Google license hashes AND run non-interactive yes | sdkmanager --licenses
           mkdir -p "$SDK_DIR/licenses"
-
-          # 1. Pre-populate official Google Android SDK license hashes so Gradle never blocks
           printf "\n8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e\n24333f8a63b6825ea9c5514f83c2829b004d1fee\n859f317696f67ef3d7f30a50a5560e7834b43903\n" > "$SDK_DIR/licenses/android-sdk-license"
           printf "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910\n" > "$SDK_DIR/licenses/android-sdk-preview-license"
-          printf "\n33b6a2b64607f11b759f320ef9dff4ae5c47d97a\n" > "$SDK_DIR/licenses/google-gdk-license"
-          printf "\ne9acab5b5fbb560a72cfaecce8946896ff6aab9d\n" > "$SDK_DIR/licenses/mips-android-sysimage-license"
 
-          # 2. Also run sdkmanager --licenses with yes piped safely (disabling pipefail for SIGPIPE 141)
-          SDKMANAGER_BIN=$(find "$SDK_DIR" -type f -name "sdkmanager" | head -n 1 || which sdkmanager || true)
-          if [ -n "${SDKMANAGER_BIN:-}" ] && [ -x "$SDKMANAGER_BIN" ]; then
-            echo "Accepting licenses via $SDKMANAGER_BIN..."
-            set +o pipefail
-            yes | "$SDKMANAGER_BIN" --sdk_root="$SDK_DIR" --licenses > /dev/null 2>&1 || true
-            set -o pipefail
-          fi
-          echo "All Android SDK licenses accepted successfully."
+          set +o pipefail
+          yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses > /dev/null
+          set -o pipefail
+          echo "All Android SDK licenses accepted non-interactively."
+
+          # 4. Install only the Android SDK packages required by the project (compileSdk 34 / build-tools 34.0.0)
+          set +o pipefail
+          yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" > /dev/null
+          set -o pipefail
+          echo "Required Android SDK packages installed: platform-tools, platforms;android-34, build-tools;34.0.0"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3

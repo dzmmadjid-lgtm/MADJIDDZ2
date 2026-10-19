@@ -1,4 +1,4 @@
-name: Android CI â€” Dynamic ZIP & Gradle APK Build
+name: Android CI — Dynamic ZIP & Gradle APK Build
 
 on:
   push:
@@ -125,7 +125,7 @@ jobs:
             if [ -z "$INITIAL_SETTINGS" ]; then
               NESTED_ZIP=$(find "$EXTRACTED_PATH" -type f -name "*.zip" ! -path "*/__MACOSX/*" | head -n 1 || true)
               if [ -n "$NESTED_ZIP" ]; then
-                echo "Detected nested ZIP archive: $NESTED_ZIP â€” extracting..."
+                echo "Detected nested ZIP archive: $NESTED_ZIP — extracting..."
                 unzip -q -o "$NESTED_ZIP" -d "$EXTRACTED_PATH/nested_extracted"
               fi
             fi
